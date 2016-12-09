@@ -2,7 +2,7 @@
 
 # Example usage: python runner.py --train_cores 40 --predict_cores 20 --num_ratings 20000000
 
-from vowpal_porpoise import VW
+from vowpal_platypus import run, als, safe_remove, split_file, daemon, daemon_predict
 from datetime import datetime
 from multiprocessing import Pool
 import os
@@ -11,48 +11,16 @@ import random
 import socket
 from retrying import retry
 
-def train_on_core(core):
-    vw = vw_instances[core]
+def train_on_core(model):
+    core = 0 if model.node is None else model.node
     user_id_pool = filter(lambda x: int(x) % train_cores == core, user_ids)
-    vw.start_training()
-    for user_id in user_id_pool:
-        for movie_id, rating in ratings[user_id].iteritems():
-            vw_item = rating + ' |u ' + user_id + ' |i ' + movie_id
-            vw.push_instance(vw_item)
-    vw.close_process()
+    with model.training():
+        for user_id in user_id_pool:
+            for movie_id, rating in ratings[user_id].iteritems():
+                vw_item = rating + ' |u ' + user_id + ' |i ' + movie_id
+                vw.push_instance(vw_item)
     return None
 
-@retry(wait_fixed=1000)
-def netcat(hostname, port, content):
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect((hostname, port))
-    s.sendall(content)
-    s.shutdown(socket.SHUT_WR)
-    data = []
-    while True:
-        datum = s.recv(1024)
-        if datum == '':
-            break
-        datum = datum.split('\n')
-        for dat in datum:
-            if dat != '':
-                dat = float(dat)
-                if 5 >= dat >= 0:
-                    data.append(dat)
-    s.close()
-    return data
-    
-def vw_model(node, volume, parallel=True):
-    if parallel:
-        return VW(moniker='{}ALS'.format(volume), total=train_cores, node=node, unique_id=0, span_server='localhost', holdout_off=True, bits=21, passes=40, quadratic='ui', rank=25, l2=0.001, learning_rate=0.015, decay_learning_rate=0.97, power_t=0)
-    else:
-        return VW(moniker='{}ALS'.format(volume), holdout_off=True, bits=21, passes=40, quadratic='ui', rank=25, l2=0.001, learning_rate=0.015, decay_learning_rate=0.97, power_t=0)
-
-def daemon(core):
-    port = core + 4040
-    train_model = vw_instances[core % train_cores].get_model_file()
-    initial_moniker = vw_instances[core % train_cores].handle
-    return VW(moniker=initial_moniker, daemon=True, old_model=train_model, holdout_off=True, quiet=True, port=port, num_children=2).start_predicting()
 
 def compile_ratings(ratings_file):
     ratings = {}
@@ -69,15 +37,15 @@ def compile_ratings(ratings_file):
         ratings[user_id][movie_id] = rating
     return ratings
 
-def rec_for_user(core):
+def rec_for_user(daemon):
+    core = 0 if daemon.node is None else daemon.node
     rfile = rec_files[core]
-    port = 4040 + core
     user_id_pool = filter(lambda x: int(x) % predict_cores == core, user_ids)
     for user_id in user_id_pool:
         unseen_movie_ids = list(set(movie_ids) - set(ratings[user_id].values()))
         vw_items = ''.join(map(lambda m: '|u ' + user_id + ' |i ' + m + '\n', unseen_movie_ids))
         print('Connecting to port %i...' % port)
-        preds = netcat('localhost', port, vw_items)
+        preds = daemon_predict(daemon, vw_items, quiet=True)
         user_recs = [list(a) for a in zip(preds, unseen_movie_ids)]
         user_recs.sort(reverse=True)
         rfile.write(str({'user': user_id,
@@ -130,56 +98,40 @@ if evaluate_only and (evaluate is None or evaluate is False):
 
 print("Cleaning up...")
 targets = ['ALS*', 'ratings_*', '*recs*', 'users.csv']
-[os.system('rm ' + volume + target) for target in targets]
+[safe_remove('rm ' + volume + target) for target in targets]
 
 print("Formating data...")
 os.system("head -n {} {}ratings.csv | tail -n +2 > {}ratings_.csv".format(num_ratings + 1, volume, volume)) # +1 to not trim header
 os.system("tail -n +2 " + volume + "ratings_.csv | awk -F\",\" '{print $1}' | uniq > " + volume + "users.csv")
 
-ratings_file = open('{}ratings_.csv'.format(volume), 'r')
-movie_file = open('{}movies.csv'.format(volume), 'r')
-user_file = open('{}users.csv'.format(volume), 'r')
-movie_ids = [movie.split(',')[0] for movie in list(movie_file.read().splitlines())]
-user_ids = [user.split(',')[0] for user in list(user_file.read().splitlines())]
+def process_csv(item):
+   return item.split(',')[0] 
+movie_ids = load_file('{}movies.csv'.format(volume), process_csv)
+user_ids = load_file('{}user.csv'.format(volume), process_csv)
 movie_ids.pop(0) # Throw out headers
 user_ids.pop(0)
 
+ratings_file = open('{}ratings_.csv'.format(volume), 'r')
 ratings = compile_ratings(ratings_file)
-
-movie_file.close()
-user_file.close()
-ratings_file.close()
 setup_done = datetime.now()
-
-print("Booting models...")
-if train_cores > 1:
-    os.system("spanning_tree")
-    vw_instances = [vw_model(n, volume) for n in range(train_cores)]
-else:
-    vw_instances = [vw_model(0, volume, parallel=False)]
 
 if not evaluate_only:
     print("Jamming some train on {} cores...".format(train_cores))
-    if train_cores > 1:
-        pool = Pool(train_cores)
-        pool.map(train_on_core, range(train_cores))
-    else:
-        train_on_core(0)
-    training_done = datetime.now()
+    vw_models = als(name='{}ALS'.format(volume),
+                    cores=train_cores,
+                    passes=40,
+                    quadratic='ui',
+                    rank=25,
+                    l2=0.001,
+                    learning_rate=0.015,
+                    decay_learning_rate=0.97,
+                    power_t=0)
+    run(vw_models, train_on_core)
 
     print("Spooling predictions on {} cores...".format(predict_cores))
-    train_model = vw_instances[0].get_model_file()
-    initial_moniker = vw_instances[0].handle
-
+    daemons = [daemon(model) for model in vw_models]
     rec_files = [open('{}/py_recs'.format(volume) + str(i) + '.dat', 'w') for i in range(predict_cores)]
-
-    if predict_cores > 1:
-        daemons = [daemon(core) for core in random.sample(range(predict_cores), predict_cores)]
-        pool = Pool(predict_cores)
-        pool.map(rec_for_user, range(predict_cores))
-    else:
-        daemons = [daemon(0)]
-        rec_for_user(0)
+    run(daemons, rec_for_user)
 
     for f in rec_files:
         f.close()
