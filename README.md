@@ -4,7 +4,7 @@ This is a repository of example code for [Vowpal Platypus](https://github.com/pe
 
 Examples:
 
-* **[ALS](als)** -- Run [Alternating Least Squares Collaborative Filtering](https://github.com/JohnLangford/vowpal_wabbit/wiki/Matrix-factorization-example) on different amounts of [MovieLens data](http://grouplens.org/datasets/movielens/). Capable of analyzing 20M product ratings and create recommendations based on 3,757,811,791 unrated user-product combinations in 35m26s on a m4.10xlarge (40 core, 196GB RAM).
+* **[ALS](als)** -- Run [Alternating Least Squares Collaborative Filtering](https://github.com/JohnLangford/vowpal_wabbit/wiki/Matrix-factorization-example) on different amounts of [MovieLens data](http://grouplens.org/datasets/movielens/). Capable of analyzing 20M product ratings and creating recommendations based on 3,757,811,791 unrated user-product combinations in 21m47s on a 3x c4.8xlarge cluster (108 cores total, 60GB RAM each).
 
 * **[Criteo](criteo)** -- Train on 45.8M rows of user ad clicks (or no clicks) and then test on 6M rows to generate predictions. Gets a log loss of 0.54581 in 14min30sec of training and 8sec of file writing on a m4.10xlarge (40 core 160GB RAM), which is enough to get position #542 on the leaderboard.
 

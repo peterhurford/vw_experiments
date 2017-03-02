@@ -14,8 +14,3 @@ sudo python setup.py install && cd ..
 sudo -H pip install retrying
 sudo -H pip install git+https://github.com/uqfoundation/dill.git@master
 sudo -H pip install git+https://github.com/uqfoundation/pathos.git@master
-
-cd ~/vp_examples/criteo
-mkdir data; cd data
-wget https://s3-eu-west-1.amazonaws.com/criteo-labs/dac.tar.gz  # Accept terms at http://labs.criteo.com/downloads/2014-kaggle-display-advertising-challenge-dataset/
-tar -xvzf dac.tar.gz

@@ -1,6 +1,7 @@
 from vowpal_platypus import run
 from vowpal_platypus.models import als
 from vowpal_platypus.utils import safe_remove
+from vowpal_platypus.evaluation import rmse
 import argparse
 import os
 from datetime import datetime
@@ -29,9 +30,6 @@ def compile_rating(item):
     movie_id = item[1]
     return {'label': rating, 'c': user_id, 'p': movie_id}
 
-def rmse(results):
-    return (sum(map(lambda x: (float(x[1]) - float(x[0])) ** 2, results)) / float(len(results))) ** 0.5
-
 if num_ratings < 1000000:
     os.system('head -n ' + str(num_ratings) + ' als/1m/data/ratings.dat > als/1m/data/ratings_.dat')
 else:
@@ -55,10 +53,12 @@ else:
 results = run(model,
               'als/1m/data/ratings_.dat',
               line_function=compile_rating,
-              evaluate_function=evaluate_function,
+              evaluate_function=rmse,
               header=False)
 safe_remove('als/1m/data/ratings_.dat')
 
+import pdb
+pdb.set_trace()
 rmse = 'RMSE: ' + str(rmse(results))
 end = datetime.now()
 time = 'Time: ' + str((end - start).total_seconds()) + ' sec'
