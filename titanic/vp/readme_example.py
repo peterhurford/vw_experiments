@@ -35,4 +35,5 @@ run(logistic_regression(name='Titanic',    # Gives a name to the model file.
                         nn=5),             # Add a neural network layer with 5 hidden units.
     'titanic/data/titanic.csv',     # File with the data (will automatically be split into random train and test)
     line_function=process_line,     # Function to process each line of the file
-    evaluate_function=auc)          # Function to evaluate results
+    evaluate_function=auc,          # Function to evaluate results
+    deploy=True)                    # Deploy your model as a REST API
